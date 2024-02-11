@@ -12,86 +12,120 @@
 .INCLUDE "M328PDEF.inc"
 .CSEG
 .ORG 0x00
+
 //*****************************************************************************
 // STACK POINTER 
 //*****************************************************************************
-LDI R16, LOW(RAMEND)
-OUT SPL, R16
-LDI R17, HIGH(RAMEND)
-OUT SPH, R17 
+	LDI R16, LOW(RAMEND)
+	OUT SPL, R16
+	LDI R17, HIGH(RAMEND)
+	OUT SPH, R17
+//*****************************************************************************
+; CONFIGURACION DE MCU 
 //*****************************************************************************
 
-//*****************************************************************************
-// TABLA DE VALORES 
-//*****************************************************************************
-
-//*****************************************************************************
-// CONFIGURACION MCU 
-//*****************************************************************************
-SETUP:
+SETUP: 
 	
-	LDI R16, (1 << CLKPCE) 
-	STS CLKPR, R16
+; DEJAMOS LA FRECUENCIA DEL CRISTAL EN 16MHz
 
-	LDI R16, 0b0000_0001 ;DEFINO LA FRECUENCIA EN 4MHz
-	STS CLKPR, R16
+	; ACTIVACION DE LOS PUERTOS TX Y RX PARA QUE SE PUEDAN USAR COMO PINES NORMALES
+	LDI R16,0x00
+	STS UCSR0B, R16
 
-	CALL TIM0
+	;DECLARACION DE PUERTOS COMO SALIDA 
+	SBI DDRD, PD7
+	SBI DDRD, PD6
+	SBI DDRD, PD5
+	SBI DDRD, PD4
+	SBI DDRD, PD3
+	SBI DDRD, PD2
+	SBI DDRD, PD1
 
-	SBI DDRB, PB0 ; usare el PB5 como salida
-	CBI PORTB, PB0 ; apago el vit pb5 del puerto B
-	SBI DDRB, PB1
-	CBI PORTB, PB1
-	SBI DDRB, PB2
-	CBI PORTB, PB2
-	SBI DDRB, PB3
-	CBI PORTB, PB3
-
-	LDI R17, 0x00 ;LO USARE COMO EL CONTADOR QUE COMIENZA EN 0
-
-
-
-LOOP:
-	IN R16, TIFR0
-	CPI R16, (1<<TOV0) ;COMPARO CON LA BANDERA DE OVERFLOW
-	BRNE LOOP		   ;SI NO ESTA ENCENDIDA REGRESAMOS AL LOOP
-	
-	LDI R16, 158     
-	OUT TCNT0, R16
-
-	SBI TIFR0, TOV0
-
-	INC R20  ;INCREMENTAMOS EL CONTADOR
-	CPI R20, 100 ;VA COMPARAR HASTA QUE LLEGUE A 50
-	BRNE LOOP
-
-	CLR R20
-
-	INC R17					;INCREMENTO EL CONTADOR DE LED
-	;CPI R17, 16	;COMPARO SI LAS LEDS YA ESTAN ENCENDIDAS
-	;BREQ PASAR				
-
-
-	OUT PINB, R17 ;ENCENDEMOS ALGO
-	RJMP LOOP ;AL BUCLE INICIAL
-
-//*****************************************************************************
-
-//*****************************************************************************
-// SUBRUTINAS
-//*****************************************************************************
-
-TIM0:	
-	LDI R16, (1 << CS02) | (1 << CS00) ; EL PRESCALER SE QUEDO EN 1024
-	OUT TCCR0B, R16 
-
-	LDI R16, 158 ; LE CARGO EL VALOR EXACTO DE DESBORDAMIENTO
-	OUT TCNT0, R16 ;CARGO EL VALOR INICIAL DEL CONTADOR
-
-	RET 
-
-;PASAR:
-;	CLR R17		;SI YA ESTAN ENCENDIDAS TODAS, LIMPIO MI REGISRO PARA QUE CUENTE DESDE 0 NUEVAMENTE
-;	RET
+	;DECLARACION DE PUERTOS COMO ENTRADA
+	SBI PORTC, PC0
+	SBI PORTC, PC1
 	
 
+	;CARGAR VALOR A R16 PARA EL CONTADOR 
+	LDI R16, 0b0000_0000
+	LDI R17, 0b0000_0000
+	;CARGAR VALOR A DELAY
+	LDI R21, 0xFF
+	LDI R22, 0xFF
+	LDI R23, 0X0F
+
+//*****************************************************************************
+; LOOP 
+//*****************************************************************************
+
+
+
+LOOP2:
+	IN R17, PINC 
+	CPI R17, 0b0000_0011 ; LEEMOS LOS BOTONES
+	BREQ LOOP2
+	CALL DELAY ; LLAMAMOS A NUESTRO ANTIREBOTE 
+	CPI R17, 0b0000_0010 ;VOLVEMOS A LEER BOTON POR BOTON 
+	BREQ PULSOI 
+	CPI R17, 0b0000_0001
+	BREQ PULSOD
+	RJMP LOOP2
+
+
+//*****************************************************************************
+; SUBRUTINAS
+//*****************************************************************************
+
+PULSOI: 
+	CALL CONTI	; FUNCION QUE INCREMENTA EL REGISTRO DE CONTADOR 
+	CALL PUN_TAB	; FUNCION QUE APUNTA PARA EL DISPLAY DE 7 SEGMENTOS 
+	OUT PORTD, R18 ; MUESTRA LO QUE ENCONTRO EN LA TABLA 
+	RJMP LOOP2
+
+PULSOD:
+	CALL CONTD
+	CALL PUN_TAB
+	OUT PORTD, R18
+	RJMP LOOP2
+
+
+CONTI:
+	INC R16 
+	SBRC R16, 4 
+	CLR R16 
+	RET
+
+CONTD:
+	DEC R16
+	SBRC R16,4
+	LDI R16, 0x0F
+	RET
+	
+PUN_TAB:
+	LDI ZH, HIGH(TABLA7SEG << 1)
+	LDI ZL, LOW (TABLA7SEG << 1)
+	ADD ZL, R16
+	LPM R18, Z
+	RET
+
+Delay:
+DEC R21 
+CPI R21, 0b0000_0000 
+BRNE Delay 
+LDI R21, 0b1111_1111
+DEC R22
+CPI R22, 0b0000_0000
+BRNE DELAY
+LDI R22, 0b1111_1111
+DEC R23 
+CPI R23, 0b0000_0000
+BRNE DELAY
+LDI R23, 0b0000_1111 // Delay
+RET
+	
+
+//*****************************************************************************
+; TABLA DE VALORES
+//*****************************************************************************
+
+TABLA7SEG: .DB/*0*/ 0b1110_1110, /*1*/ 0b1000_1000, /*2*/ 0b1101_0110, /*3*/ 0b1101_1100, /*4*/ 0b1011_1000, /*5*/ 0b0111_1100, /*6*/ 0b0011_1110,/*7*/ 0b1100_1000,/*8*/ 0b1111_1110,/*9*/ 0b1111_1000,/*A*/ 0b1111_1010,/*B*/ 0b0011_1110,/*C*/ 0b0110_0110,/*D*/ 0b1110_1110,/*E*/ 0b0111_0110,/*F*/ 0b0111_0010
